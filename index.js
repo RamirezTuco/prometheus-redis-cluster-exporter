@@ -4,7 +4,7 @@ const parser = require("redis-info");
 const promClient = require('prom-client');
 
 const metrics = {
-    redis_stats: new promClient.Gauge({ name: 'redis_stats', labelNames: ['instance', 'key'], help: 'redis key for that instance' }),
+    redis_stats: new promClient.Gauge({ name: 'redis_stats', labelNames: ['node', 'key'], help: 'redis key for that node' }),
 };
 
 const processJSON = function (info) {
@@ -93,7 +93,7 @@ const pushStatsForNode = async function(client, host, port){
                     if (info.hasOwnProperty(key)) {
                         const val = info[key];
                         if (!isNaN(val)) {
-                            metrics.redis_stats.labels(uri, key).set(Number(val));
+                            metrics.redis_stats.labels(uri.replace(/\.|:/g,'-'), key).set(Number(val));
                         }
                     }
                 }
@@ -132,7 +132,6 @@ const processClusterNodes = async function(cluster){
 
 app.get('/metrics', async (req, res) => {
     res.contentType(promClient.register.contentType);
-    console.log(promClient.register.contentType);
     try {
         let cluster = await connectToCluster();
         await processClusterNodes(cluster);
