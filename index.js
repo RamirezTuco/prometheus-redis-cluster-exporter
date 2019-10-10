@@ -3,9 +3,19 @@ let Redis = require("ioredis");
 const parser = require("redis-info");
 const promClient = require('prom-client');
 
+const params={};
+const paramsStr=process.env["PARAMS"];
+paramsStr ? paramsStr.split(',').map(function(x) {let a=x.split('='); if(a.length > 1){let k=a[0]; let v=a[1]; params[k]=v};}): paramsStr;
+console.log(`params are ${JSON.stringify(params)}`);
+
+const keysArr = Object.keys(params);
+const valuesArr = Object.values(params);
+
 const metrics = {
-    redis_stats: new promClient.Gauge({ name: 'redis_stats', labelNames: ['node', 'key'], help: 'redis key for that node' }),
+    redis_stats: new promClient.Gauge({ name: 'redis_stats', labelNames: ['node', 'key'].concat(keysArr), help: 'redis key for that node' }),
 };
+
+promClient.collectDefaultMetrics();
 
 const processJSON = function (info) {
     let processedJson = {
@@ -93,7 +103,8 @@ const pushStatsForNode = async function(client, host, port){
                     if (info.hasOwnProperty(key)) {
                         const val = info[key];
                         if (!isNaN(val)) {
-                            metrics.redis_stats.labels(uri.replace(/\.|:/g,'-'), key).set(Number(val));
+                            //const label
+                            metrics.redis_stats.labels(...[uri.replace(/\.|:/g,'-'), key].concat(valuesArr)).set(Number(val));
                         }
                     }
                 }
