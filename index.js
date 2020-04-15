@@ -13,6 +13,7 @@ const valuesArr = Object.values(params);
 
 const metrics = {
     redis_stats: new promClient.Gauge({ name: 'redis_stats', labelNames: ['node', 'key'].concat(keysArr), help: 'redis key for that node' }),
+    redis_replication_stats : new promClient.Gauge({ name: 'redis_replication_stats', labelNames: ['slave', 'master', 'link_status'].concat(keysArr), help: 'redis replication stats for that node' }),
 };
 
 promClient.collectDefaultMetrics();
@@ -60,6 +61,13 @@ const processJSON = function (info) {
         })
     }
 
+    const role = info.role;
+    if(role == 'slave'){
+        processedJson['master']=`${info.master_host}-${info.master_port}`;
+        processedJson['link_status']=info.master_link_status;
+        processedJson['slave_repl_offset']=info.slave_repl_offset;
+    }
+
     return processedJson;
 }
 
@@ -71,9 +79,9 @@ let config = {
     port: process.env["EXPOSE"] || 8080
 };
 
-const connectToNode = async function (host, port) {
+const connectToNode = async function (connectData) {
     return new Promise((resolve, reject) => {
-        let client = new Redis({ host: host, port: port });
+        let client = new Redis(connectData);
         client.on('connect', (err) => {
             if (err) {
                 console.log('error while connecting to redis');
@@ -81,9 +89,12 @@ const connectToNode = async function (host, port) {
             } else {
                 resolve(client);
             }
-            client.on('close', () => {
-                console.log('connection to redis closed');
-            });
+        });
+        client.on('close', () => {
+            console.log(`connection to redis ${connectData.host}:${connectData.port} closed`);
+        });
+        client.on('error', () => {
+            reject();
         });
     });
 }
@@ -96,7 +107,7 @@ const pushStatsForNode = async function(client, host, port){
             } else {
                 let info = parser.parse(res);
                 info = processJSON(info);
-
+                //console.log(info);
                 let uri = `${host}:${port}`;
         
                 for (var key in info) {
@@ -108,35 +119,24 @@ const pushStatsForNode = async function(client, host, port){
                         }
                     }
                 }
+                if(info.master){
+                    metrics.redis_replication_stats.labels(...[uri.replace(/\.|:/g,'-'), info.master, info.link_status].concat(valuesArr)).set(Number(info.slave_repl_offset    ));
+                    //redis_replication_stats : new promClient.Gauge({ name: 'redis_replication_stats', labelNames: ['slave', 'master', 'link_status'].concat(keysArr), help: 'redis replication stats for that node' }),
+
+                }
                 resolve();
             }
         });
     });
 }
 
-const connectToCluster = async function () {
-    return new Promise((resolve, reject) => {
-        const clusterString = config.connect.targets;
-        const connectArr = clusterString.split(",").map((str)=> {let arr = str.split(":"); return {host: arr[0], port: Number(arr[1])}});
-        let cluster = new Redis.Cluster(connectArr);
-        cluster.on('connect', (err) => {
-            if (err) {
-                console.log(`error while connecting to redis cluster`, err);
-                reject(err);
-            } else {
-                resolve(cluster);
-            }
-        });
-        cluster.on('close', () => {
-            console.log('connection to cluster closed');
-        });
-    });
-}
 
-const processClusterNodes = async function(cluster){
-    await Promise.all(cluster.nodes().map(async (node) => {
-        let client = await connectToNode(node.options.host, node.options.port);
-        await pushStatsForNode(client, node.options.host, node.options.port);
+const connectToTargets = async function () {
+    const targetsString = config.connect.targets;
+    const connectArr = targetsString.split(",").map((str)=> {let arr = str.split(":"); return {host: arr[0], port: Number(arr[1])}});
+    await Promise.all(connectArr.map(async (nodeconfig) => {
+        let client = await connectToNode(nodeconfig);
+        await pushStatsForNode(client, nodeconfig.host, nodeconfig.port);
         await client.disconnect();
     }));
 }
@@ -144,10 +144,7 @@ const processClusterNodes = async function(cluster){
 app.get('/metrics', async (req, res) => {
     res.contentType(promClient.register.contentType);
     try {
-        let cluster = await connectToCluster();
-        await processClusterNodes(cluster);
-        await cluster.disconnect();
-
+        await connectToTargets(); 
         res.send(promClient.register.metrics());
     } catch (error) {
         console.log(error);
@@ -156,7 +153,7 @@ app.get('/metrics', async (req, res) => {
 });
 
 const server = app.listen(config.port, function () {
-    console.log(`Prometheus-Redis Exporter listening on local port ${config.port} monitoring ${config.connect.targets}`);
+    console.log(`Prometheus-Redis Exporter listening on local port ${config.port} monitoring ${config.connect.targets} with params ${JSON.stringify(params)}`);
 });
 
 process.on('SIGINT', function () {
