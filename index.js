@@ -79,6 +79,9 @@ let config = {
     port: process.env["EXPOSE"] || 8080
 };
 
+const targetsString = config.connect.targets;
+const connectArr = targetsString.split(",").map((str)=> {let arr = str.split(":"); let host=arr[0]; let port= arr.length > 1 ? arr[1] : 6379 ; return {host: host, port: Number(port)}});
+
 const connectToNode = async function (connectData) {
     return new Promise((resolve, reject) => {
         let client = new Redis(connectData);
@@ -132,8 +135,6 @@ const pushStatsForNode = async function(client, host, port){
 
 
 const connectToTargets = async function () {
-    const targetsString = config.connect.targets;
-    const connectArr = targetsString.split(",").map((str)=> {let arr = str.split(":"); return {host: arr[0], port: Number(arr[1])}});
     await Promise.all(connectArr.map(async (nodeconfig) => {
         let client = await connectToNode(nodeconfig);
         await pushStatsForNode(client, nodeconfig.host, nodeconfig.port);
@@ -153,7 +154,7 @@ app.get('/metrics', async (req, res) => {
 });
 
 const server = app.listen(config.port, function () {
-    console.log(`Prometheus-Redis Exporter listening on local port ${config.port} monitoring ${config.connect.targets} with params ${JSON.stringify(params)}`);
+    console.log(`Prometheus-Redis Exporter listening on local port ${config.port} monitoring ${JSON.stringify(connectArr)} with params ${JSON.stringify(params)}`);
 });
 
 process.on('SIGINT', function () {
