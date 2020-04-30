@@ -80,7 +80,8 @@ let config = {
 };
 
 const targetsString = config.connect.targets;
-const connectArr = targetsString.split(",").map((str)=> {let arr = str.split(":"); let host=arr[0]; let port= arr.length > 1 ? arr[1] : 6379 ; return {host: host, port: Number(port)}});
+
+const connectArr = targetsString.split(",").map((str)=> {let array = str.split("@"); let auth = array.length == 2 ? array[0] : ""; let arr = array.length == 2 ? array[1].split(":") : array[0].split(":"); let host=arr[0]; let port= arr.length > 1 ? arr[1] : 6379 ; return {host: host, port: Number(port), password: auth}});
 
 const connectToNode = async function (connectData) {
     return new Promise((resolve, reject) => {
@@ -102,8 +103,10 @@ const connectToNode = async function (connectData) {
     });
 }
 
-const pushStatsForNode = async function(client, host, port){
+const pushStatsForNode = async function(client, nodeconfig){
     return new Promise((resolve, reject) => {
+        let host = nodeconfig.host;
+        let port = nodeconfig.port;
         client.info('all', async function(err, res){
             if(err){
                 reject(err);
@@ -137,7 +140,7 @@ const pushStatsForNode = async function(client, host, port){
 const connectToTargets = async function () {
     await Promise.all(connectArr.map(async (nodeconfig) => {
         let client = await connectToNode(nodeconfig);
-        await pushStatsForNode(client, nodeconfig.host, nodeconfig.port);
+        await pushStatsForNode(client, nodeconfig);
         await client.disconnect();
     }));
 }
