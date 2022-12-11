@@ -24,7 +24,7 @@
   },
   "homepage": "https://github.com/RamirezTuco/prometheus-redis-cluster-exporter#readme",
   "dependencies": {
-    "express": "^4.17.1",
+    "express": "^4.17.3",
     "ioredis": "^4.14.1",
     "prom-client": "^11.5.3",
     "redis-info": "^3.0.7"
